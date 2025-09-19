@@ -134,7 +134,6 @@ dmypy.json
 
 # Folders
 Lightcurves/
-Output*
 
 *Plots/
 
