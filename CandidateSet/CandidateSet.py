@@ -21,31 +21,66 @@ from TrainingSet import utils as tutils
 try:
     from TrainingSet import gpu_bls_new as gbls
 except Exception:
-    no_bls = True
+    print('GPU BLS could not be imported!')
 
 
 class CandidateSet(object):
 
-    def __init__(self, infile, infile_type='default', sector_file='SPOC_sectors.csv', lc_dir='default', dir_style='per_target', per_lim=[0, None], depth_lim=None, multiprocessing=1, save_output=True, save_suffix=None, load_suffix=None, plot_centroid=False):
+    def __init__(self, infile, infile_type='default', sector_file='SPOC_sectors.csv', lc_dir='default', dir_structure='single', per_lim=[0.5, 16], depth_lim=300, multiprocessing=0, save_output=True, save_suffix=None, load_suffix=None, plot_centroid=False):
         """
-        Load in a set of candidates with their transit parameters [period, epoch, depth]. Sets up the environment for running the positional probabilitiy generation.         
+        Class instance for running the RAVEN pipeline on a set of TESS candidates. 
+        Loads in the candidate data which include:
+            - target ticid
+            - candidate id 
+            - period, 
+            - epoch, 
+            - transit duration 
+            - transit depth
         
         Parameters
-        infile - path to input file or dataframe
-        infile_type - options: default/archive/exofop/recovery/dataframe, allows for loading in data from specific databases or the default loading format.
-        sector_file - csv file with the ticids and sectors for SPOC dataproducts
-        lc_dir - either path to lighcurve directory or set as default.
-        dir_style - 'per_target/'spoc'/'single. Structure of the lightcurve directory.
-                    'per_target': One sub-folder per ticid which includes all available lightcurves for the target.
-                    'spoc': Lightcurve directory organised as per the released spoc sector FFI data products.
-                    'single': A signle directory containing all lightcurves for all targets.
-        per_lim - set maximum period limit for candidates to be processed. Candidates with period longer than maximum will be skipped.
-        depth_lim - set minimum depth limit for candidates. Candidates with depth less than the minimum will be skipped.
-        multiprocessing - set maximum number of workers (set 1 for no multiprocessing)
-        save_output - True/False. Affects all data generation except for the probability generation, which always saves the output.
-        save_suffix - Suffix for the filenames of all saved data.
-        load_suffix - Suffix for loading previously saved data.
-        plot_centroid - True/False. Create plots when fitting the trapezium transit model to the centroid data.
+        ----------
+        infile : str or pandas.DataFrame
+            - Name of the input file placed in the Input/ directory
+            - Absolute path to the input file
+            - pandas.DataFrame object containing the candidate data
+        infile_type : {'default', 'archive', 'exofop', 'recovery', 'dataframe'}, optional
+            Specifies the format of the input data:
+            - 'default': User-generated CSV with columns: [ticid, candidate, per, t0, tdur, depth]
+            - 'archive': TOI list as downloaded from NASA Exoplanet Archive
+            - 'exofop': TOI list as downloaded from ExoFOP
+            - 'recovery': Candidate list from RAVEN's built-in BLS survey
+            - 'dataframe': Input is a pandas DataFrame object
+        sector_file : str, optional
+            Name of the CSV file containing TIC IDs and their observed sectors for SPOC data.
+            Defaults to 'SPOC_sectors.csv' in the Input/ directory.
+        lc_dir : str or Path, optional
+            Path to the directory containing the lightcurve files. Defaults to the 'Lightcurves/'
+            folder in the project directory.
+        dir_structure : {'per_target', 'spoc', 'single'}, optional
+            Structure of the lightcurve directory. Defaults to 'single'.
+            - 'per_target': One sub-folder per TIC ID containing all its lightcurves.
+            - 'spoc': Lightcurves organized as downloaded from the SPOC sector release.
+            - 'single': A single directory containing all lightcurves for all targets.
+        per_lim : list of float, optional
+            A list defining the minimum and maximum period limits [min, max] for candidates to be
+            processed. Candidates outside this range will be skipped. Defaults to [0.5, 16].
+        depth_lim : float, optional
+            The minimum transit depth in ppm for a candidate to be processed. Candidates with
+            shallower depths will be skipped. Defaults to 300ppm.
+        multiprocessing : int, optional
+            The number of worker processes to use for parallel tasks. If 0, multiprocessing is
+            disabled. Defaults to 0.
+        save_output : bool, optional
+            If True, saves the output of the pipeline processes to disk. Defaults to True.
+        save_suffix : str, optional
+            A suffix to append to all saved output filenames for this run. If None and save_output 
+            is set to True, the infile name is used unless the input is a DataFrame. Defaults to None.
+        load_suffix : str, optional
+            A suffix to identify and load files from a previous run, allowing the pipeline to
+            resume or reuse prior results. Defaults to None.
+        plot_centroid : bool, optional
+            If True, generates and saves plots of the trapezium model fit to the centroid data.
+            Defaults to False.
         """
         
         raven_dir = Path(__file__).resolve().parents[1]
@@ -55,27 +90,42 @@ class CandidateSet(object):
         else:
             self.lc_dir = Path(lc_dir)
            
-        self.dir_style = dir_style
+        self.dir_structure = dir_structure
             
         if infile_type == 'exofop':
-            self.data = cutils.load_exofop_toi(infile, per_lim=per_lim, depth_lim=depth_lim)
+            self.data = cutils.load_exofop_toi(infile)
         elif infile_type == 'archive':
-            self.data = cutils.load_archive_toi(infile, per_lim=per_lim, depth_lim=depth_lim)
+            self.data = cutils.load_archive_toi(infile)
         elif infile_type == 'recovery':
-            self.data = cutils.load_recovery(infile, per_lim=per_lim, depth_lim=depth_lim)
+            self.data = cutils.load_recovery(infile)
         elif infile_type == 'default':
-            self.data = cutils.load_default(infile, per_lim=per_lim, depth_lim=depth_lim)
+            self.data = cutils.load_default(infile)
         elif infile_type == 'dataframe':
-            self.data = cutils.process_dataframe_input(infile.copy(), per_lim=per_lim, depth_lim=depth_lim)
+            self.data = cutils.examine_dataframe_input(infile.copy())
         else:
             raise ValueError('Infile type must be set as one of: default/archive/exofop')
         
+        # Store multi-candidate data
+        self.multi_candidates = self.data.loc[self.data.index.get_level_values('ticid').duplicated(keep=False)].copy()
+        
+        # Apply pipeline limits
+        self.data = cutils.apply_pipeline_limits(self.data, per_lim, depth_lim)
+        
+        # Load in the tic ids and corresponding sectors for which SPOC FFI lcs exist        
         sectors =  pd.read_csv(raven_dir / f'Input/{sector_file}').set_index('ticid')
         sectors = sectors.loc[sectors.index.intersection(self.data.index.unique('ticid'))]
         sectors['sector'] = sectors['sector'].apply(lambda x: [int(s) for s in x.split(',')[:-1]])
         
+        # Append the sectors and remove targets for which no SPOC lcs exist
         self.data = self.data.join(sectors, how='inner')
         self.data.rename(columns={'sector':'sectors'}, inplace=True)
+        
+        # Keep only multi-candidates with at least one candidate still to be processed
+        self.multi_candidates = self.multi_candidates.loc[self.multi_candidates.index.unique('ticid').intersection(self.data.index.unique('ticid'))]
+        
+        # If processing candidates from RAVEN's BLS survey do not use the multi-candidate data
+        if infile_type == 'recovery':
+            self.multi_candidates = pd.DataFrame()
         
         # Data containers    
         self.sources = {} # Source objects
@@ -105,12 +155,16 @@ class CandidateSet(object):
         self.save_output = save_output
         
         # Set a suffix that will be attached to the names of the files generated by the different 
-        # process of the pipeline. If not user specified, use the date and time of class creation.
+        # process of the pipeline. If not user specified, use the name of the input file unless it is a dataframe.
+        # Then use the date and time when the class instance was initialised.
         if save_output is not False:   
             if save_suffix:
                 self.save_suffix = save_suffix
             else:
-                self.save_suffix = datetime.today().strftime('%d%m%Y_%H%M%S')
+                if isinstance(infile, str):
+                    self.save_suffix = Path(infile).stem
+                else:
+                    self.save_suffix = datetime.now().strftime("%d-%m-%Y_%H%M")
         else:
             self.save_suffix = ''
         
@@ -442,7 +496,7 @@ class CandidateSet(object):
             sectors = self.data.loc[[ticid]].iloc[0]['sectors']
             found_sectors = []
             for sec in sectors:
-                lc_file = cutils.lc_filepath(self.lc_dir, self.dir_style, ticid, sec)
+                lc_file = cutils.lc_filepath(self.lc_dir, self.dir_structure, ticid, sec)
                 
                 if lc_file.exists():
                     found_sectors.append(sec)
@@ -650,7 +704,7 @@ class CandidateSet(object):
         hdus = {}
         sec_error = []
         for sec in sectors:
-            lcfile = cutils.lc_filepath(self.lc_dir, self.dir_style, ticid, sec)
+            lcfile = cutils.lc_filepath(self.lc_dir, self.dir_structure, ticid, sec)
             
             try:            
                 lc, hdu = cutils.load_spoc_lc(lcfile, flatten=True, transitcut=True,
@@ -704,7 +758,7 @@ class CandidateSet(object):
                 # If the bls function was not compiled 
                 # (Possibly because of the lack of an Nvidia GPU or CUDA incompatibility)
                 skip_per_cor = True
-            elif len(candidates) > 1:
+            elif ticid in self.multi_candidates.index.unique('ticid'):
                 # Skip correction if there is more than one candidate per target
                 # to avoid transits from other candidates affecting the process
                 skip_per_cor = True
@@ -1012,7 +1066,7 @@ class CandidateSet(object):
         tc_tdur23 = event_data.sec_tdur23
 
         # Sector lightcurve file
-        lc_file = cutils.lc_filepath(self.lc_dir, self.dir_style, ticid, sec)
+        lc_file = cutils.lc_filepath(self.lc_dir, self.dir_structure, ticid, sec)
         
         # Load in the detrended, normalized and with outliers removed vertical and horizontal centroid position data. 
         # The flag specifies issues found during the loading of the data that prevent the offset calculation.
@@ -1074,7 +1128,7 @@ class CandidateSet(object):
                                      
             for sec in sectors:
                 # Retrieve the lc file for the sector
-                lc_file = cutils.lc_filepath(self.lc_dir, self.dir_style, ticid, sec)
+                lc_file = cutils.lc_filepath(self.lc_dir, self.dir_structure, ticid, sec)
                 
                 # Load in the pipeline aperture and centroid masks for the target pixels, the wcs and the origin location of the target pixel on the ccd
                 aperture_mask, centroid_mask, wcs, origin, cam, ccd = cutils.load_spoc_masks(lc_file)
@@ -1212,7 +1266,7 @@ class CandidateSet(object):
         self.estimate_depths = True
     
           
-    def generate_probabilities(self, max_eclipsedepth=1.0, prob_thresh=1e-4, rerun=False):
+    def generate_positional_probabilities(self, max_eclipsedepth=1.0, prob_thresh=1e-4, rerun=False):
         """
         Generates positional probabilities for the target and nearby sources and performs an assessment of the suitability for each to be the true host of the event.
         
@@ -1843,7 +1897,7 @@ class CandidateSet(object):
         
         lcs = {}
         for sec in sectors:
-            lc_file = cutils.lc_filepath(self.lc_dir, self.dir_style, target_id, sec)
+            lc_file = cutils.lc_filepath(self.lc_dir, self.dir_structure, target_id, sec)
             try:
                 lc = cutils.load_spoc_lc(lc_file, flatten=True, transitcut=True,
                                          tc_per=tce_pers, tc_t0=tce_t0s, tc_tdur=tce_tdurs)
@@ -1910,12 +1964,13 @@ class CandidateSet(object):
 
             tce_lc = copy(lc)
             
-            if self.mask_multi and len(target_data.index) > 1:
-                mask = target_data.index.unique('candidate') != tce
-                other_pers = tce_pers[mask]
-                other_t0s = tce_t0s[mask]
-                other_tdurs = tce_tdurs[mask]
-                        
+            if self.mask_multi and target_id in self.multi_candidates.index.unique('ticid'):
+                multi_data = self.multi_candidates.loc[target_id]
+                mask = multi_data.index.unique('candidate') != tce
+                other_pers = multi_data.per.values[mask]
+                other_t0s = multi_data.t0.values[mask]
+                other_tdurs = multi_data.tdur.values[mask]
+
                 for i in range(len(other_pers)):
                     tce_lc = futils.transit_cut(tce_lc, other_pers[i], other_t0s[i], other_tdurs[i])
                 
@@ -2022,6 +2077,11 @@ class CandidateSet(object):
         # Transform the results into a dataframe for ease of use and saving    
         self.validation_results = pd.DataFrame(final_probabilities).set_index(['ticid', 'candidate'])
         
+        # Compute the RAVEN probability
+        temp = self.validation_results.copy()
+        temp.loc[temp.query('NSFP >= 0.9').index, 'NSFP'] = 1.0
+        self.validation_results['RAVEN'] = temp.min(axis=1)
+        
         # Save the results if requested
         if self.save_output:
             if uniform:
@@ -2048,8 +2108,6 @@ class Source(object):
         self.bp_rp = np.nan
         self.no_gaia_id = 0
         self.Gaia_dr3_flag = 0
-        # self.Gaia_rad_flag = 0
-        # self.Gaia_teff_flag = 0
         self.non_gaia_sources = 0
         self.scc = pd.DataFrame(columns=['sector', 'cam', 'ccd']).set_index('sector')
         self.wcs = {}

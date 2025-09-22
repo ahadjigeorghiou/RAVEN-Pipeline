@@ -22,18 +22,18 @@ Gaia.MAIN_GAIA_TABLE = "gaiadr3.gaia_source"
 Gaia.ROW_LIMIT = -1
 
 
-def lc_filepath(lc_dir, dir_style, ticid, sector):
+def lc_filepath(lc_dir, dir_strucutre, ticid, sector):
     filename = f'hlsp_tess-spoc_tess_phot_{ticid:016}-s{sector:04}_tess_v1_lc.fits'
-    if dir_style == 'per_target':
+    if dir_strucutre == 'per_target':
         filepath = lc_dir / f'{ticid}' / filename
-    elif dir_style == 'spoc':
+    elif dir_strucutre == 'spoc':
         full_ticid = f'{ticid:016}'
         split_id = textwrap.wrap(full_ticid, 4)
         filepath = lc_dir / F'S{sector:02}' / 'target' / split_id[0] / split_id[1] / split_id[2] / split_id[3] / filename
-    elif dir_style == 'single':
+    elif dir_strucutre == 'single':
         filepath = lc_dir / filename
     else:
-        raise ValueError(f'dir_style: {dir_style} not supported.')
+        raise ValueError(f'dir_style: {dir_strucutre} not supported.')
     
     return filepath
 
@@ -92,29 +92,46 @@ def download_spoc_lcs(ticid, download_dir, max_sec=None):
         print(ticid, 'Connection error. Observations not retrieved.')
     
     
-def load_default(infile, per_lim=[0, None], depth_lim=None):    
+def check_infile_path(infile):
+    infile_path = Path(infile)
+    
+    if infile_path.is_absolute():
+        # Use the input path directly
+        return infile_path
+    else:
+        raven_directory = Path(__file__).resolve().parents[1]
+        # Handle relative paths
+        # Check if the path starts with 'Input'
+        if infile_path.parent.name.lower() == 'input':
+            # Path already starts with 'Input'
+            return raven_directory / infile
+        else:
+            # Assume it's just a filename or other relative path, prepend Input directory
+            input_loc = raven_directory / 'Input'
+            return input_loc / infile
+
+
+def load_default(infile):    
     # Default data should be a csv file with ticid, toi/candidate num, per, t0, tdur, depth in this order
-    data = pd.read_csv(f'Input/{infile}')
+    
+    # Resolve the input file path
+    file_path = check_infile_path(infile)    
+    data = pd.read_csv(file_path)
     data.columns = ['ticid', 'candidate', 'per', 't0', 'tdur', 'depth']
     data.set_index(['ticid', 'candidate'], inplace=True)
     
     data.loc[data['t0'] > 2457000, 't0'] -= 2457000
     
-    data.sort_values(['ticid', 'candidate'])
-    
-    data.query((f'per >= {per_lim[0]}'), inplace=True)
-    
-    if per_lim[1] is not None:
-        data.query((f'per <= {per_lim[1]}'), inplace=True)
-    
-    if depth_lim is not None:
-        data.query((f'depth >= {depth_lim}'), inplace=True)
+    data.sort_values(['ticid', 'candidate'], inplace=True)
 
     return data
 
 
-def load_recovery(infile, per_lim=[0, None], depth_lim=None):
-    data = pd.read_csv(f'Input/{infile}')
+def load_recovery(infile):
+    # Resolve the input file path
+    file_path = check_infile_path(infile)
+    
+    data = pd.read_csv(file_path)
     
     data.rename(columns={'peak_sig':'candidate',
                          'peak_per':'per',
@@ -128,27 +145,20 @@ def load_recovery(infile, per_lim=[0, None], depth_lim=None):
     
     data.loc[data['t0'] > 2457000, 't0'] -= 2457000
     
-    data.sort_values(['ticid', 'candidate'])
-    
-    data.query((f'per >= {per_lim[0]}'), inplace=True)
-    
-    if per_lim[1] is not None:
-        data.query((f'per <= {per_lim[1]}'), inplace=True)
-    
-    if depth_lim is not None:
-        data.query((f'depth >= {depth_lim}'), inplace=True)
+    data.sort_values(['ticid', 'candidate'], inplace=True)
 
     return data
 
-def load_archive_toi(infile, per_lim=[0,None], depth_lim=None):        
+def load_archive_toi(infile):        
     cols = ['toi', 'tid', 'tfopwg_disp', 'pl_tranmid', 'pl_orbper', 'pl_trandurh', 'pl_trandep']
     
-    input_loc = Path(__file__).resolve().parents[1] / 'Input'
-    
+    # Resolve the input file path
+    file_path = check_infile_path(infile)
+
     try:
-        toi_df = pd.read_csv(input_loc / infile, usecols=cols)
+        toi_df = pd.read_csv(file_path, usecols=cols)
     except ValueError:
-        toi_df = pd.read_csv(input_loc / infile, usecols=cols, comment='#')
+        toi_df = pd.read_csv(file_path, usecols=cols, comment='#')
     
     toi_df.rename(columns={'toi':'candidate',
                            'tid':'ticid',
@@ -157,37 +167,30 @@ def load_archive_toi(infile, per_lim=[0,None], depth_lim=None):
                            'pl_orbper':'per',
                            'pl_trandurh':'tdur',
                            'pl_trandep':'depth'}, inplace=True)
-    
-    toi_df['t0'] -= 2457000
-    
+
+    toi_df.loc[toi_df['t0'] > 2457000, 't0'] -= 2457000
+
     toi_df['tdur'] /= 24
     
     toi_df.loc[np.isnan(toi_df['per']), 'per'] = 0
     
     toi_df.set_index(['ticid', 'candidate'], inplace=True)
     
-    toi_df.sort_values(['ticid', 'candidate'])
-    
-    toi_df.query((f'per >= {per_lim[0]}'), inplace=True)
-    
-    if per_lim[1] is not None:
-        toi_df.query((f'per <= {per_lim[1]}'), inplace=True)
-    
-    if depth_lim is not None:
-        toi_df.query((f'depth >= {depth_lim}'), inplace=True)
+    toi_df.sort_values(['ticid', 'candidate'], inplace=True)
         
     return toi_df
 
 
-def load_exofop_toi(infile, per_lim=[0, None], depth_lim=None):  
+def load_exofop_toi(infile):  
     cols = ['TIC ID', 'TOI', 'TESS Disposition', 'TFOPWG Disposition', 'Transit Epoch (BJD)', 'Period (days)', 'Duration (hours)', 'Depth (ppm)']
     
-    input_loc = Path(__file__).resolve().parents[1] / 'Input'
-    
+    # Resolve the input file path
+    file_path = check_infile_path(infile)
+
     try:
-        toi_df = pd.read_csv(input_loc / infile, usecols=cols)
+        toi_df = pd.read_csv(file_path, usecols=cols)
     except ValueError:
-        toi_df = pd.read_csv(input_loc / infile, usecols=cols, skiprows=2)
+        toi_df = pd.read_csv(file_path, usecols=cols, skiprows=2)
     
     toi_df.rename(columns={'TIC ID':'ticid',
                            'TOI':'candidate',
@@ -198,26 +201,18 @@ def load_exofop_toi(infile, per_lim=[0, None], depth_lim=None):
                            'Duration (hours)':'tdur',
                            'Depth (ppm)':'depth'}, inplace=True)
     
-    toi_df['t0'] -= 2457000
+    toi_df.loc[toi_df['t0'] > 2457000, 't0'] -= 2457000
     
     toi_df['tdur'] /= 24
     
     toi_df.set_index(['ticid', 'candidate'], inplace=True)
     
-    toi_df.sort_values(['ticid', 'candidate'])
-    
-    toi_df.query((f'per >= {per_lim[0]}'), inplace=True)
-    
-    if per_lim[1] is not None:
-        toi_df.query((f'per <= {per_lim[1]}'), inplace=True)
-    
-    if depth_lim is not None:
-        toi_df.query((f'depth >= {depth_lim}'), inplace=True)
+    toi_df.sort_values(['ticid', 'candidate'], inplace=True)
         
     return toi_df
 
 
-def process_dataframe_input(data, per_lim=[0, None], depth_lim=None):
+def examine_dataframe_input(data):
     data.reset_index(inplace=True)
     
     if 'disp' in data.columns:
@@ -236,8 +231,12 @@ def process_dataframe_input(data, per_lim=[0, None], depth_lim=None):
     
     data.loc[data['t0'] > 2457000, 't0'] -= 2457000
     
-    data.sort_values(['ticid', 'candidate'])
+    data.sort_values(['ticid', 'candidate'], inplace=True)
     
+    return data
+
+
+def apply_pipeline_limits(data, per_lim=[0, None], depth_lim=None):
     data.query((f'per >= {per_lim[0]}'), inplace=True)
     
     if per_lim[1] is not None:
@@ -245,7 +244,7 @@ def process_dataframe_input(data, per_lim=[0, None], depth_lim=None):
     
     if depth_lim is not None:
         data.query((f'depth >= {depth_lim}'), inplace=True)
-
+        
     return data
 
 
