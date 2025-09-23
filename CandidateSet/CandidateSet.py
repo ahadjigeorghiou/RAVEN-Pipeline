@@ -640,9 +640,22 @@ class CandidateSet(object):
             outfile = self.output / f'sectordata_{self.save_suffix}.csv'
             os.makedirs(os.path.dirname(outfile), exist_ok=True)
             self.sector_data.to_csv(outfile)
+            
+        # Check if candidates should be flagged due to depth variations in different sectors
+        sec_depth_stats = self.sector_data.groupby(['ticid','candidate']).agg(StdDepth=('sec_depth','std'))
+        sec_depth_stats = sec_depth_stats.join(self.sector_data.groupby(['ticid','candidate']).agg(MeanDepth=('sec_depth','mean')))
+        sec_depth_stats = sec_depth_stats.join(self.sector_data.groupby(['ticid','candidate']).agg(MinDepth=('sec_depth','min')))
+        sec_depth_stats['Variability'] = sec_depth_stats['StdDepth'] / sec_depth_stats['MeanDepth']
+        
+        sec_depth_stats['Flagged'] = False
+        sec_depth_stats.loc[sec_depth_stats.query('Variability > 0.5 or MinDepth < 200').index, 'Flagged'] = True
+
+        # Store the flagged candidates  
+        self.flagged = sec_depth_stats.query('Flagged == True')
                     
         # Mark the process as completed      
         self.sectordata = True
+                
                 
     def multi_target_data(self, ticids):
         """
