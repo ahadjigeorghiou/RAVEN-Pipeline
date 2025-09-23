@@ -1,0 +1,20 @@
+python >= 3.12
+numpy>=2.2.6
+pandas>=2.2.3
+scipy
+astropy
+astroquery
+astropy-healpix
+batman-package
+matplotlib
+natsort
+requests
+scikit-learn ~= 1.6.1
+xgboost ~= 3.0.2
+torch ~= 2.7.0
+gpytorch ~= 1.14.0
+skorch ~= 1.1.0
+
+# (optional) for BLS search 
+cupy >= 13.4.1
+

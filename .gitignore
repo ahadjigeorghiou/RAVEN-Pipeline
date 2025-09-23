@@ -139,7 +139,6 @@ Lightcurves/
 
 # Files
 /*.png
-/*.txt
 /*.pdf
 /*.out
 notebooks

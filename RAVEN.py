@@ -205,7 +205,7 @@ if __name__ == '__main__':
             print(f'{ticid}-{candidate}')
     
     print('Positional Probabilities:')    
-    print(result.probabilities.query('target == source'))
+    print(result.probabilities[['PositionalProbability', 'Disposition']])
     
     print('Posterior Probabilities:')   
     print(result.validation_results)
