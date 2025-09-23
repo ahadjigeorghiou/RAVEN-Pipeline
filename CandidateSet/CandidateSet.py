@@ -26,7 +26,7 @@ except Exception:
 
 class CandidateSet(object):
 
-    def __init__(self, infile, infile_type='default', sector_file='SPOC_sectors.csv', lc_dir='default', dir_structure='single', per_lim=[0.5, 16], depth_lim=300, multiprocessing=0, save_output=True, save_suffix=None, load_suffix=None, plot_centroid=False):
+    def __init__(self, infile, infile_type='default', sector_file='SPOC_sectors.csv', lc_dir='default', dir_structure='single', per_lim=[0.5, 16], depth_lim=300, multiprocessing=0, save_output=True, save_suffix=None, load_suffix=None, output_directory='default', plot_centroid=False):
         """
         Class instance for running the RAVEN pipeline on a set of TESS candidates. 
         Loads in the candidate data which include:
@@ -78,6 +78,8 @@ class CandidateSet(object):
         load_suffix : str, optional
             A suffix to identify and load files from a previous run, allowing the pipeline to
             resume or reuse prior results. Defaults to None.
+        output_directory : str or Path, optional
+            Path to a user defined output directory. Default is the 'Output/' folder in the project directory.
         plot_centroid : bool, optional
             If True, generates and saves plots of the trapezium model fit to the centroid data.
             Defaults to False.
@@ -168,10 +170,14 @@ class CandidateSet(object):
         else:
             self.save_suffix = ''
         
-        # Define and create output directory if it does not exist       
-        self.output = Path(__file__).resolve().parents[1] / 'Output'
-        self.output.mkdir(exist_ok=True)
-        
+        # Define and create output directory if it does not exist
+        if output_directory == 'default':
+            self.output = raven_dir / 'Output'
+            self.output.mkdir(exist_ok=True)
+        else:
+            self.output = Path(output_directory)
+            self.output.mkdir(exist_ok=True)
+
         # Suffix to load output from previous run. Affects all process of the pipeline.
         self.load_suffix = load_suffix
         

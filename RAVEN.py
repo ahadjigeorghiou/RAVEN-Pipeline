@@ -17,12 +17,10 @@ Additional input options are available. See the documentation of the run_pipelin
 
 
 from CandidateSet import CandidateSet as cs
-from time import time
-from datetime import timedelta
 import argparse as ap
 
 
-def run_pipeline(infile, infile_type='default', lc_directory='default', dir_structure='single', save_output=True, save_suffix=None, load_suffix=None, num_process=0):
+def run_pipeline(infile, infile_type='default', lc_directory='default', dir_structure='single', save_suffix=None, load_suffix=None, output_directory='default', num_process=0):
     """
     Runs the full RAVEN pipeline for a given set of candidates.
     
@@ -61,14 +59,14 @@ def run_pipeline(infile, infile_type='default', lc_directory='default', dir_stru
         - 'single': All lightcurve files in one directory
         - 'per_target': Organized with one sub-folder per TIC ID containing all its lightcurves
         - 'spoc': Lightcurves organized exactly as downloaded from SPOC sector releases
-    save_output : bool, optional
-        Whether to save output files from the pipeline's processes. Defaults to True.
     save_suffix : str, optional
         A suffix to append to all saved output files for this run. If None, the input filename
         will be used unless the input is a dataframe.
     load_suffix : str, optional
         A suffix to identify and load files from a previous run, allowing the
         pipeline to resume or reuse prior results. Defaults to None.
+    output_directory : str or Path, optional
+        Path to a user defined output directory. Default is the 'Output/' folder in the project directory.
     num_process : int, optional
         The number of processes to use for multiprocessing tasks. If 0, multiprocessing is disabled. 
         Defaults to 0.
@@ -85,9 +83,10 @@ def run_pipeline(infile, infile_type='default', lc_directory='default', dir_stru
                                infile_type, 
                                lc_dir=lc_directory, 
                                dir_structure=dir_structure, 
-                               save_output=save_output, 
+                               save_output=True, 
                                save_suffix=save_suffix, 
                                load_suffix=load_suffix,
+                               output_directory=output_directory,
                                multiprocessing=num_process, 
                                per_lim=[0.5, 16], depth_lim=300)
 
@@ -169,19 +168,19 @@ def parse_cli_args():
                         help="Lightcurve directory organization structure: 'single' (all files in one directory), "
                              "'per_target' (one subfolder per TIC ID), "
                              "'spoc' (preserves SPOC release sector-based organization).")
-    
-    parser.add_argument('--save_output', type=bool, default=True,
-                        help='Whether to save output files during pipeline execution. Default is True.')
                         
     parser.add_argument('--save_suffix', type=str, default=None,
                         help='Suffix to append to all saved output files. Defaults to the input filename.')
                         
     parser.add_argument('--load_suffix', type=str, default=None,
                         help='Suffix to identify and load files from a previous run.')
+    
+    parser.add_argument('--output_directory', type=str, default='default',
+                        help="Path to a user defined output directory. Default is the 'Output/' folder in the project directory.")
                         
     parser.add_argument('--num_process', type=int, default=0,
                         help='Number of processes for multiprocessing. 0 disables it. Default is 0.')
-                                                
+                        
     return parser.parse_args()
 
 
@@ -193,9 +192,9 @@ if __name__ == '__main__':
         infile_type=args.infile_type,
         lc_directory=args.lc_dir,
         dir_structure=args.dir_structure,
-        save_output=args.save_output,
         save_suffix=args.save_suffix,
         load_suffix=args.load_suffix,
+        output_directory=args.output_directory,
         num_process=args.num_process
     )
     
